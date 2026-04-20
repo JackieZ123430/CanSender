@@ -1,0 +1,19 @@
+{
+  "menu_keepalive_enabled": true,
+  "menu_keepalive_terminal_state": "ACC",
+  "session_start_terminal_state": "ACC",
+  "default_3a0_enabled": true,
+  "default_speed_enabled": false,
+  "default_speed_value": 0.0,
+  "default_speed_jitter": 0.0,
+  "default_rpm_enabled": false,
+  "default_rpm_value": 0,
+  "default_rpm_jitter": 50,
+  "auto_open_log_window": true,
+  "auto_open_editor_window": true,
+  "auto_open_history_window": true,
+  "auto_open_pcan_window": true,
+  "auto_open_control_window": true,
+  "show_splash": true,
+  "frame_enabled_defaults": {}
+}
