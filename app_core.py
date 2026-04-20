@@ -3086,6 +3086,321 @@ def show_splash():
 
     input(f"  {GRAY}按回车键进入主菜单...{RESET}")
 
+
+def _show_modern_start_panel():
+    remembered = USER_SETTINGS.get('remember_last_choice', True)
+    fmt = int(USER_SETTINGS.get('last_fuzz_format', 1))
+    mode = str(USER_SETTINGS.get('last_app_mode', 'A')).upper()
+    print(f"{BOLD}{BLUE}{'─'*70}{RESET}")
+    print(f"{BOLD}{WHITE}  现代化快速入口（新增，不替代原来的格式/模式选择）{RESET}")
+    print(f"{BOLD}{BLUE}{'─'*70}{RESET}")
+    print(f"  {CYAN}•{RESET} 快速命令: {YELLOW}FAST{RESET}=使用上次配置  {YELLOW}SET{RESET}=设置中心  {YELLOW}HELP{RESET}=显示说明")
+    print(f"  {CYAN}•{RESET} 当前记忆: 格式={fmt}  模式={mode}  记忆开关={'开' if remembered else '关'}")
+    print(f"{GRAY}  说明：原始菜单、原始文本、原始模式和原始按键全部保留；这里只是新增一个更顺手的入口。{RESET}\n")
+
+
+def _print_start_help():
+    print(f"{BOLD}{CYAN}帮助：{RESET}")
+    print("  1) 你仍然可以像以前一样输入 1/2/3/4 和 A/B/C/D。")
+    print("  2) FAST 会直接套用上次成功启动会话时记录的格式和模式。")
+    print("  3) SET 会进入设置中心，原有所有选项继续可用。")
+    print("  4) 本次升级不删除任何功能，只新增便捷入口与记忆能力。\n")
+
+
+def _launch_terminal_startup_selector():
+    """纯终端启动向导：无GUI依赖，稳定可回退。"""
+    print(f"\n{BOLD}{CYAN}┌─ 终端启动向导（TUI） ─────────────────────────────────────┐{RESET}")
+    print(f"{CYAN}│{RESET} 保留全部原功能：这里只是把分散输入改成一次性分组输入。          {CYAN}│{RESET}")
+    print(f"{CYAN}└──────────────────────────────────────────────────────────┘{RESET}")
+    while True:
+        mode = (input("模式 [A/B/C/D] (回车=A, Q=退出向导): ").strip().upper() or 'A')
+        if mode == 'Q':
+            return {'action': 'cancel'}
+        if mode in ('A', 'B', 'C', 'D'):
+            break
+        print(f"{RED}请输入 A/B/C/D 或 Q{RESET}")
+
+    fmt = ask_int("发送格式 [1~4]", default=int(USER_SETTINGS.get('last_fuzz_format', 1)), min_v=1, max_v=4)
+    keep_3a0 = ask_yes_no("启用内置3A0固定帧", default=bool(FRAME_ENABLED.get(0x3A0, True)))
+    speed_enabled = ask_yes_no("启用车速配置", default=bool(S.get('speed_config_enabled', False)))
+    speed_value, speed_jitter = 0.0, 0.0
+    if speed_enabled:
+        speed_value = ask_float("车速 km/h", default=float(S.get('speed_value', 0.0)), min_v=0.0, max_v=300.0)
+        speed_jitter = ask_float("车速抖动 ±km/h", default=float(S.get('speed_jitter', 0.0)), min_v=0.0, max_v=20.0)
+    rpm_enabled = ask_yes_no("启用转速配置", default=bool(S.get('rpm_config_enabled', False)))
+    rpm_value, rpm_jitter = 0, 50
+    if rpm_enabled:
+        rpm_value = ask_int("转速 rpm", default=int(S.get('rpm_value', 0)), min_v=0, max_v=9000)
+        rpm_jitter = ask_int("转速抖动 ±rpm", default=int(S.get('rpm_jitter', 50)), min_v=0, max_v=1000)
+
+    payload = {
+        'fmt': fmt,
+        'mode': mode,
+        'enable_3a0': keep_3a0,
+        'speed_enabled': speed_enabled,
+        'speed_value': speed_value,
+        'speed_jitter': speed_jitter,
+        'rpm_enabled': rpm_enabled,
+        'rpm_value': rpm_value,
+        'rpm_jitter': rpm_jitter,
+        'mode_b_count': int(USER_SETTINGS.get('last_mode_b_count', 3)),
+        'mode_b_fixed_ids_text': '',
+        'mode_c_ids_text': '',
+        'mode_d_ids_text': '',
+        'mode_d_length': int(USER_SETTINGS.get('last_mode_d_length', 8)),
+    }
+
+    if mode == 'B':
+        payload['mode_b_count'] = ask_int("模式B随机ID数量", default=int(USER_SETTINGS.get('last_mode_b_count', 3)), min_v=1, max_v=2048)
+        if ask_yes_no("模式B增加固定随机帧ID", default=False):
+            payload['mode_b_fixed_ids_text'] = input("固定随机帧ID（如 21D,22E）: ").strip()
+    elif mode == 'C':
+        default_c = str(USER_SETTINGS.get('last_mode_c_ids', '')).strip()
+        while True:
+            v = input(f"模式C目标Fuzz ID（如 21D,1F3，回车={default_c or '无'}）: ").strip()
+            if not v and default_c:
+                v = default_c
+            try:
+                if not parse_hex_id_list(v):
+                    raise ValueError("至少输入一个ID")
+                payload['mode_c_ids_text'] = v
+                break
+            except Exception as ex:
+                print(f"{RED}输入有误: {ex}{RESET}")
+    elif mode == 'D':
+        default_d = str(USER_SETTINGS.get('last_mode_d_ids', '')).strip()
+        while True:
+            v = input(f"模式D穷举ID（如 21D,22E，回车={default_d or '无'}）: ").strip()
+            if not v and default_d:
+                v = default_d
+            try:
+                if not parse_hex_id_list(v):
+                    raise ValueError("至少输入一个ID")
+                payload['mode_d_ids_text'] = v
+                break
+            except Exception as ex:
+                print(f"{RED}输入有误: {ex}{RESET}")
+        payload['mode_d_length'] = ask_int("模式D帧长度", default=int(USER_SETTINGS.get('last_mode_d_length', 8)), min_v=1, max_v=8)
+
+    return {'action': 'apply', 'payload': payload}
+
+
+def _launch_modern_startup_selector():
+    if not HAS_TK or not USER_SETTINGS.get('modern_startup_gui_enabled', True):
+        return None
+    if not _ensure_tk():
+        return None
+
+    done = threading.Event()
+    result = {'action': 'cancel'}
+
+    def _build():
+        top = tk.Toplevel(_tk_root)
+        top.title('PCAN Sender 现代启动中心')
+        top.geometry('860x670')
+        top.configure(bg='#111')
+        top.resizable(True, True)
+
+        style = ttk.Style(top)
+        try:
+            style.theme_use('clam')
+        except Exception:
+            pass
+
+        fmt_var = tk.StringVar(value=str(int(USER_SETTINGS.get('last_fuzz_format', 1))))
+        mode_var = tk.StringVar(value=str(USER_SETTINGS.get('last_app_mode', 'A')).upper())
+        keep_3a0_var = tk.BooleanVar(value=bool(FRAME_ENABLED.get(0x3A0, True)))
+        speed_enable_var = tk.BooleanVar(value=bool(S.get('speed_config_enabled', False)))
+        speed_val_var = tk.StringVar(value=f"{float(S.get('speed_value', 0.0)):.1f}")
+        speed_jitter_var = tk.StringVar(value=f"{float(S.get('speed_jitter', 0.0)):.1f}")
+        rpm_enable_var = tk.BooleanVar(value=bool(S.get('rpm_config_enabled', False)))
+        rpm_val_var = tk.StringVar(value=str(int(S.get('rpm_value', 0))))
+        rpm_jitter_var = tk.StringVar(value=str(int(S.get('rpm_jitter', 50))))
+        b_count_var = tk.StringVar(value=str(int(USER_SETTINGS.get('last_mode_b_count', 3))))
+        b_fixed_ids_var = tk.StringVar(value='')
+        c_ids_var = tk.StringVar(value=str(USER_SETTINGS.get('last_mode_c_ids', '')).strip())
+        d_ids_var = tk.StringVar(value=str(USER_SETTINGS.get('last_mode_d_ids', '')).strip())
+        d_len_var = tk.StringVar(value=str(int(USER_SETTINGS.get('last_mode_d_length', 8))))
+
+        root = tk.Frame(top, bg='#111')
+        root.pack(fill='both', expand=True, padx=14, pady=12)
+
+        tk.Label(root, text='现代化启动中心（保留原有全部功能）', bg='#111', fg='#8ec5ff',
+                 font=('Microsoft YaHei UI', 15, 'bold')).pack(anchor='w')
+        tk.Label(root, text='这里是新增图形入口；原开机页、原菜单、原模式输入与原按键均可继续使用。', bg='#111',
+                 fg='#aaa', font=('Microsoft YaHei UI', 10)).pack(anchor='w', pady=(4, 10))
+
+        core = tk.LabelFrame(root, text='基础启动参数', bg='#161616', fg='#8ee7ff',
+                             font=('Microsoft YaHei UI', 10, 'bold'), bd=1, relief='solid')
+        core.pack(fill='x', padx=2, pady=(0, 8))
+        row1 = tk.Frame(core, bg='#161616'); row1.pack(fill='x', padx=10, pady=10)
+        tk.Label(row1, text='发送格式', bg='#161616', fg='#ddd').pack(side='left')
+        ttk.Combobox(row1, textvariable=fmt_var, values=['1', '2', '3', '4'], state='readonly', width=8).pack(side='left', padx=(8, 20))
+        tk.Label(row1, text='工作模式', bg='#161616', fg='#ddd').pack(side='left')
+        ttk.Combobox(row1, textvariable=mode_var, values=['A', 'B', 'C', 'D'], state='readonly', width=8).pack(side='left', padx=(8, 18))
+        tk.Checkbutton(row1, text='启用3A0固定帧', variable=keep_3a0_var, bg='#161616', fg='#ddd',
+                       activebackground='#161616', selectcolor='#222').pack(side='left')
+
+        perf = tk.LabelFrame(root, text='车速 / 转速（与原逻辑一致）', bg='#161616', fg='#8ee7ff',
+                             font=('Microsoft YaHei UI', 10, 'bold'), bd=1, relief='solid')
+        perf.pack(fill='x', padx=2, pady=(0, 8))
+        speed_row = tk.Frame(perf, bg='#161616'); speed_row.pack(fill='x', padx=10, pady=(8, 4))
+        tk.Checkbutton(speed_row, text='启用车速', variable=speed_enable_var, bg='#161616', fg='#ddd',
+                       activebackground='#161616', selectcolor='#222').pack(side='left')
+        tk.Label(speed_row, text='值(km/h)', bg='#161616', fg='#aaa').pack(side='left', padx=(10, 4))
+        tk.Entry(speed_row, textvariable=speed_val_var, width=8).pack(side='left')
+        tk.Label(speed_row, text='抖动±', bg='#161616', fg='#aaa').pack(side='left', padx=(10, 4))
+        tk.Entry(speed_row, textvariable=speed_jitter_var, width=8).pack(side='left')
+
+        rpm_row = tk.Frame(perf, bg='#161616'); rpm_row.pack(fill='x', padx=10, pady=(4, 10))
+        tk.Checkbutton(rpm_row, text='启用转速', variable=rpm_enable_var, bg='#161616', fg='#ddd',
+                       activebackground='#161616', selectcolor='#222').pack(side='left')
+        tk.Label(rpm_row, text='值(rpm)', bg='#161616', fg='#aaa').pack(side='left', padx=(10, 4))
+        tk.Entry(rpm_row, textvariable=rpm_val_var, width=8).pack(side='left')
+        tk.Label(rpm_row, text='浮动±', bg='#161616', fg='#aaa').pack(side='left', padx=(10, 4))
+        tk.Entry(rpm_row, textvariable=rpm_jitter_var, width=8).pack(side='left')
+
+        mode_box = tk.LabelFrame(root, text='模式专属参数', bg='#161616', fg='#8ee7ff',
+                                 font=('Microsoft YaHei UI', 10, 'bold'), bd=1, relief='solid')
+        mode_box.pack(fill='both', expand=True, padx=2, pady=(0, 8))
+
+        hint = tk.Label(mode_box, text='提示：会根据上方模式自动显示输入区域。', bg='#161616', fg='#888')
+        hint.pack(anchor='w', padx=10, pady=(8, 6))
+
+        mode_panel = tk.Frame(mode_box, bg='#161616')
+        mode_panel.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+
+        msg_var = tk.StringVar(value='')
+        tk.Label(root, textvariable=msg_var, bg='#111', fg='#ffb36b').pack(anchor='w')
+
+        def _clear_mode_panel():
+            for w in mode_panel.winfo_children():
+                w.destroy()
+
+        def _draw_mode_panel(*_):
+            _clear_mode_panel()
+            m = mode_var.get().upper()
+            if m == 'A':
+                tk.Label(mode_panel, text='模式A不需要额外参数。', bg='#161616', fg='#bbb').pack(anchor='w')
+            elif m == 'B':
+                tk.Label(mode_panel, text='随机ID数量（>=1）', bg='#161616', fg='#bbb').grid(row=0, column=0, sticky='w')
+                tk.Entry(mode_panel, textvariable=b_count_var, width=10).grid(row=0, column=1, sticky='w', padx=(8, 0))
+                tk.Label(mode_panel, text='额外固定随机帧ID（可空，如 21D,22E）', bg='#161616', fg='#bbb').grid(row=1, column=0, sticky='w', pady=(8, 0))
+                tk.Entry(mode_panel, textvariable=b_fixed_ids_var, width=36).grid(row=1, column=1, sticky='w', padx=(8, 0), pady=(8, 0))
+            elif m == 'C':
+                tk.Label(mode_panel, text='目标Fuzz ID（必填，如 21D,1F3）', bg='#161616', fg='#bbb').grid(row=0, column=0, sticky='w')
+                tk.Entry(mode_panel, textvariable=c_ids_var, width=40).grid(row=0, column=1, sticky='w', padx=(8, 0))
+            elif m == 'D':
+                tk.Label(mode_panel, text='穷举目标ID（必填，如 21D,22E）', bg='#161616', fg='#bbb').grid(row=0, column=0, sticky='w')
+                tk.Entry(mode_panel, textvariable=d_ids_var, width=40).grid(row=0, column=1, sticky='w', padx=(8, 0))
+                tk.Label(mode_panel, text='帧长度（1~8）', bg='#161616', fg='#bbb').grid(row=1, column=0, sticky='w', pady=(8, 0))
+                tk.Entry(mode_panel, textvariable=d_len_var, width=10).grid(row=1, column=1, sticky='w', padx=(8, 0), pady=(8, 0))
+
+        mode_var.trace_add('write', _draw_mode_panel)
+        _draw_mode_panel()
+
+        btns = tk.Frame(root, bg='#111')
+        btns.pack(fill='x', pady=(2, 0))
+
+        def _close(action='cancel'):
+            result['action'] = action
+            try:
+                top.grab_release()
+            except Exception:
+                pass
+            try:
+                top.destroy()
+            except Exception:
+                pass
+            done.set()
+
+        def _apply():
+            try:
+                fmt = int(fmt_var.get())
+                if fmt not in (1, 2, 3, 4):
+                    raise ValueError('发送格式仅支持 1~4')
+                mode = mode_var.get().strip().upper()
+                if mode not in ('A', 'B', 'C', 'D'):
+                    raise ValueError('模式仅支持 A/B/C/D')
+                speed_v = float(speed_val_var.get().strip() or '0')
+                speed_j = float(speed_jitter_var.get().strip() or '0')
+                rpm_v = int(rpm_val_var.get().strip() or '0')
+                rpm_j = int(rpm_jitter_var.get().strip() or '50')
+                if not (0 <= speed_v <= 300 and 0 <= speed_j <= 20):
+                    raise ValueError('车速范围: 0~300，抖动: 0~20')
+                if not (0 <= rpm_v <= 9000 and 0 <= rpm_j <= 1000):
+                    raise ValueError('转速范围: 0~9000，浮动: 0~1000')
+
+                payload = {
+                    'fmt': fmt,
+                    'mode': mode,
+                    'enable_3a0': bool(keep_3a0_var.get()),
+                    'speed_enabled': bool(speed_enable_var.get()),
+                    'speed_value': speed_v,
+                    'speed_jitter': speed_j,
+                    'rpm_enabled': bool(rpm_enable_var.get()),
+                    'rpm_value': rpm_v,
+                    'rpm_jitter': rpm_j,
+                    'mode_b_count': int(b_count_var.get().strip() or '3'),
+                    'mode_b_fixed_ids_text': b_fixed_ids_var.get().strip(),
+                    'mode_c_ids_text': c_ids_var.get().strip(),
+                    'mode_d_ids_text': d_ids_var.get().strip(),
+                    'mode_d_length': int(d_len_var.get().strip() or '8'),
+                }
+                if payload['mode_b_count'] < 1:
+                    raise ValueError('模式B随机ID数量必须 >= 1')
+                if not (1 <= payload['mode_d_length'] <= 8):
+                    raise ValueError('模式D帧长度必须在 1~8')
+                if mode == 'C' and not payload['mode_c_ids_text']:
+                    raise ValueError('模式C必须填写目标Fuzz ID')
+                if mode == 'D' and not payload['mode_d_ids_text']:
+                    raise ValueError('模式D必须填写穷举目标ID')
+
+                result['action'] = 'apply'
+                result['payload'] = payload
+                _close('apply')
+            except Exception as ex:
+                msg_var.set(f'参数有误：{ex}')
+
+        tk.Button(btns, text='应用并进入会话', command=_apply, width=18, bg='#198754', fg='white',
+                  activebackground='#157347', relief='flat').pack(side='left')
+        tk.Button(btns, text='打开设置中心', command=lambda: _close('settings'), width=14, bg='#6f42c1', fg='white',
+                  activebackground='#5c35a5', relief='flat').pack(side='left', padx=8)
+        tk.Button(btns, text='回到原CLI菜单', command=lambda: _close('cancel'), width=14, bg='#495057', fg='white',
+                  activebackground='#3d4348', relief='flat').pack(side='left')
+
+        top.bind('<Escape>', lambda _e: _close('cancel'))
+        top.protocol('WM_DELETE_WINDOW', lambda: _close('cancel'))
+        top.grab_set()
+        top.focus_set()
+
+    try:
+        _tk_call(_build)
+    except Exception as ex:
+        return {'action': 'error', 'error': str(ex)}
+    done.wait()
+    return result
+
+
+def _remember_last_selection():
+    if not USER_SETTINGS.get('remember_last_choice', True):
+        return
+    USER_SETTINGS['last_fuzz_format'] = int(S['FUZZ_FORMAT'])
+    USER_SETTINGS['last_app_mode'] = str(S['APP_MODE']).upper()
+    if S['APP_MODE'] == 'B':
+        USER_SETTINGS['last_mode_b_count'] = int(max(1, len(S['FUZZ_TARGET_IDS'])))
+    elif S['APP_MODE'] == 'C':
+        USER_SETTINGS['last_mode_c_ids'] = ','.join(f'{x:03X}' for x in S['FUZZ_TARGET_IDS'])
+    elif S['APP_MODE'] == 'D':
+        D = S.get('mode_d', {})
+        USER_SETTINGS['last_mode_d_ids'] = ','.join(f'{x:03X}' for x in D.get('target_ids', []))
+        USER_SETTINGS['last_mode_d_length'] = int(D.get('length', 8))
+    try:
+        from persistent_settings import save_settings
+        save_settings(SETTINGS_FILE, USER_SETTINGS)
+    except Exception:
+        pass
+
 # ──────────────────────────────────────────────
 #  菜单
 # ──────────────────────────────────────────────
@@ -3099,22 +3414,75 @@ def select_mode():
     print(f"{BOLD}{CYAN}{'═'*70}{RESET}")
     print(f"{BOLD}{WHITE}  PCAN Sender v3.3  ·  GitHub: JackieZ123430{RESET}")
     print(f"{BOLD}{CYAN}{'═'*70}{RESET}\n")
+    gui_boot = None
+    if USER_SETTINGS.get('modern_menu_enabled', True):
+        _show_modern_start_panel()
+        while True:
+            boot_mode = (input("启动入口 (TUI=终端向导, GUI=图形向导, CLI=经典流程, SET=设置中心, 回车=TUI): ").strip().upper() or 'TUI')
+            if boot_mode == 'SET':
+                USER_SETTINGS = edit_settings_interactive(USER_SETTINGS, SETTINGS_FILE)
+                apply_runtime_defaults_to_session()
+                apply_startup_terminal_from_settings('menu_keepalive_terminal_state')
+                continue
+            if boot_mode == 'GUI':
+                gui_boot = _launch_modern_startup_selector()
+                if gui_boot and gui_boot.get('action') == 'settings':
+                    USER_SETTINGS = edit_settings_interactive(USER_SETTINGS, SETTINGS_FILE)
+                    apply_runtime_defaults_to_session()
+                    apply_startup_terminal_from_settings('menu_keepalive_terminal_state')
+                    continue
+                if not gui_boot or gui_boot.get('action') in ('error', 'cancel'):
+                    print(f"{YELLOW}GUI启动中心不可用或已取消，已自动回退到稳定TUI向导。{RESET}")
+                    gui_boot = _launch_terminal_startup_selector()
+                break
+            if boot_mode == 'TUI':
+                gui_boot = _launch_terminal_startup_selector()
+                break
+            if boot_mode == 'CLI':
+                gui_boot = None
+                break
+            print(f"{RED}请输入 TUI / GUI / CLI / SET{RESET}")
+    if USER_SETTINGS.get('modern_menu_enabled', True):
+        print(f"{GRAY}提示：如果你更习惯老流程，直接继续在命令行输入 1/2/3/4 + A/B/C/D 即可。{RESET}")
     print(f"{BOLD}【发送格式】{RESET}")
     print(f"  {YELLOW}1{RESET}  byte[0]=Counter  byte[1~7]=随机  {GRAY}(默认){RESET}")
     print(f"  {YELLOW}2{RESET}  byte[0]=CRC  byte[1]=Counter  byte[2~7]=随机")
     print(f"  {YELLOW}3{RESET}  全部纯随机")
     print(f"  {YELLOW}4{RESET}  byte[0]=CRC  byte[1]=Counter  byte[7]=Counter  byte[2~6]=随机\n")
-    while True:
-        v = input("发送格式 (1/2/3/4，SET=设置中心，回车=1): ").strip().upper() or '1'
-        if v == 'SET':
-            USER_SETTINGS = edit_settings_interactive(USER_SETTINGS, SETTINGS_FILE)
-            apply_runtime_defaults_to_session()
-            apply_startup_terminal_from_settings('menu_keepalive_terminal_state')
-            continue
-        if v in ('1', '2', '3', '4'):
-            S['FUZZ_FORMAT'] = int(v)
-            break
-        print(f"{RED}请输入 1、2、3、4 或 SET{RESET}")
+    prefilled = None
+    if gui_boot and gui_boot.get('action') == 'apply':
+        prefilled = gui_boot.get('payload', {})
+        S['FUZZ_FORMAT'] = int(prefilled.get('fmt', 1))
+        S['APP_MODE'] = str(prefilled.get('mode', 'A')).upper()
+        with FRAME_ENABLED_LOCK:
+            FRAME_ENABLED[0x3A0] = bool(prefilled.get('enable_3a0', True))
+        S['speed_config_enabled'] = bool(prefilled.get('speed_enabled', False))
+        S['speed_value'] = float(prefilled.get('speed_value', 0.0))
+        S['speed_jitter'] = float(prefilled.get('speed_jitter', 0.0))
+        S['rpm_config_enabled'] = bool(prefilled.get('rpm_enabled', False))
+        S['rpm_value'] = int(prefilled.get('rpm_value', 0))
+        S['rpm_jitter'] = int(prefilled.get('rpm_jitter', 50))
+        print(f"{GREEN}已从现代GUI加载: 格式{S['FUZZ_FORMAT']} / 模式{S['APP_MODE']}{RESET}")
+    else:
+        while True:
+            v = input("发送格式 (1/2/3/4，SET=设置中心，HELP=帮助，FAST=上次，回车=1): ").strip().upper() or '1'
+            if v == 'SET':
+                USER_SETTINGS = edit_settings_interactive(USER_SETTINGS, SETTINGS_FILE)
+                apply_runtime_defaults_to_session()
+                apply_startup_terminal_from_settings('menu_keepalive_terminal_state')
+                continue
+            if v == 'HELP':
+                _print_start_help()
+                continue
+            if v == 'FAST':
+                S['FUZZ_FORMAT'] = int(USER_SETTINGS.get('last_fuzz_format', 1))
+                S['APP_MODE'] = str(USER_SETTINGS.get('last_app_mode', 'A')).upper()
+                print(f"{GREEN}已套用上次配置: 格式{S['FUZZ_FORMAT']} / 模式{S['APP_MODE']}{RESET}")
+                break
+            if v in ('1', '2', '3', '4'):
+                S['FUZZ_FORMAT'] = int(v)
+                break
+            print(f"{RED}请输入 1、2、3、4、SET、HELP 或 FAST{RESET}")
 
     print(f"\n{BOLD}【工作模式】{RESET}")
     print(f"  {YELLOW}A{RESET}  全局随机ID")
@@ -3125,34 +3493,49 @@ def select_mode():
     print(f"{GREEN}当前3A0固定帧: {'开启' if enabled_3a0 else '关闭'}{RESET}")
     print(f"{GREEN}Terminal默认状态: {detect_terminal_state(FRAME_BASE_DATA)}  | 菜单保活: {'开启' if USER_SETTINGS.get('menu_keepalive_enabled', True) else '关闭'}{RESET}")
 
-    while True:
-        c = input("模式 (A/B/C/D): " ).strip().upper()
-        if c in ('A', 'B', 'C', 'D'):
-            S['APP_MODE'] = c
-            break
+    if prefilled is None and not (v == 'FAST' and S.get('APP_MODE') in ('A', 'B', 'C', 'D')):
+        while True:
+            c = input("模式 (A/B/C/D): " ).strip().upper()
+            if c in ('A', 'B', 'C', 'D'):
+                S['APP_MODE'] = c
+                break
 
     if S['APP_MODE'] == 'B':
-        while True:
-            try:
-                n = input("\n随机ID数量 (默认3): ").strip()
-                count = int(n) if n else 3
-                if count >= 1:
-                    break
-            except ValueError:
-                pass
-            print(f"{RED}请输入 >=1 的整数{RESET}")
+        if prefilled is not None:
+            count = int(prefilled.get('mode_b_count', USER_SETTINGS.get('last_mode_b_count', 3)))
+            count = max(1, count)
+        else:
+            while True:
+                try:
+                    remembered_count = int(USER_SETTINGS.get('last_mode_b_count', 3))
+                    n = input(f"\n随机ID数量 (默认{remembered_count}): ").strip()
+                    count = int(n) if n else remembered_count
+                    if count >= 1:
+                        break
+                except ValueError:
+                    pass
+                print(f"{RED}请输入 >=1 的整数{RESET}")
         while len(S['FUZZ_TARGET_IDS']) < count:
             aid = random.randint(0x001, 0x7FF)
             if aid not in RESERVED_IDS and aid not in S['FUZZ_TARGET_IDS']:
                 S['FUZZ_TARGET_IDS'].append(aid)
         print(f"\n{GREEN}IDs: {', '.join(f'0x{i:03X}' for i in S['FUZZ_TARGET_IDS'])}{RESET}")
 
-        configure_speed_value_interactive()
-        configure_rpm_value_interactive()
-        configure_mode_b_fixed_random_ids_interactive()
+        if prefilled is None:
+            configure_speed_value_interactive()
+            configure_rpm_value_interactive()
+            configure_mode_b_fixed_random_ids_interactive()
+        else:
+            raw_fixed = str(prefilled.get('mode_b_fixed_ids_text', '')).strip()
+            if raw_fixed:
+                try:
+                    fixed_ids = parse_hex_id_list(raw_fixed)
+                    bad = [aid for aid in fixed_ids if aid in RESERVED_IDS or aid in S['FUZZ_TARGET_IDS']]
+                    S['mode_b_fixed_random_ids'] = [aid for aid in fixed_ids if aid not in bad]
+                except Exception:
+                    S['mode_b_fixed_random_ids'] = []
         print(f"{GREEN}当前车速设置: {'启用' if S['speed_config_enabled'] else '关闭'} / {S['speed_value']:.1f} km/h / 抖动±{S['speed_jitter']:.1f}{RESET}")
         print(f"{GREEN}当前转速设置: {'启用' if S['rpm_config_enabled'] else '关闭'} / {S['rpm_value']} rpm / 浮动±{S['rpm_jitter']}{RESET}")
-        print(f"{GREEN}新增会话控制中心: {'自动打开' if USER_SETTINGS.get('auto_open_control_window', True) else '手动(U键)'}{RESET}")
         print(f"{GREEN}新增会话控制中心: {'自动打开' if USER_SETTINGS.get('auto_open_control_window', True) else '手动(U键)'}{RESET}")
         if S['mode_b_fixed_random_ids']:
             print(f"{GREEN}模式B固定随机帧: {', '.join(f'0x{i:03X}' for i in S['mode_b_fixed_random_ids'])}{RESET}")
@@ -3160,28 +3543,42 @@ def select_mode():
 
     elif S['APP_MODE'] == 'C':
         while True:
-            val = input("\n目标Fuzz ID（逗号分隔，如 21D,1F3）: ").strip()
+            if prefilled is not None:
+                val = str(prefilled.get('mode_c_ids_text', '')).strip()
+            else:
+                remembered_c = USER_SETTINGS.get('last_mode_c_ids', '')
+                hint = f"；回车=上次({remembered_c})" if remembered_c else ""
+                val = input(f"\n目标Fuzz ID（逗号分隔，如 21D,1F3{hint}）: ").strip()
+                if not val and remembered_c:
+                    val = remembered_c
             try:
                 aids = parse_hex_id_list(val)
                 if not aids:
                     print(f"{RED}请至少输入一个ID{RESET}")
+                    if prefilled is not None:
+                        prefilled = None
                     continue
                 ok, reserved = confirm_reserved_ids_for_mode_c_cli(aids)
                 if not ok:
                     print(f"{YELLOW}已取消。本次没有接管这些内置ID，请重新输入。{RESET}")
+                    if prefilled is not None:
+                        prefilled = None
                     continue
                 S['FUZZ_TARGET_IDS'] = aids
                 break
             except ValueError as e:
                 print(f"{RED}{e}{RESET}")
+                if prefilled is not None:
+                    prefilled = None
         print(f"\n{GREEN}Fuzz目标: {_fmt_id_list(S['FUZZ_TARGET_IDS'])}{RESET}")
 
-        configure_speed_value_interactive()
-        configure_rpm_value_interactive()
+        if prefilled is None:
+            configure_speed_value_interactive()
+            configure_rpm_value_interactive()
         print(f"{GREEN}当前车速设置: {'启用' if S['speed_config_enabled'] else '关闭'} / {S['speed_value']:.1f} km/h / 抖动±{S['speed_jitter']:.1f}{RESET}")
         print(f"{GREEN}当前转速设置: {'启用' if S['rpm_config_enabled'] else '关闭'} / {S['rpm_value']} rpm / 浮动±{S['rpm_jitter']}{RESET}")
 
-        if ask_yes_no('要不要同时增加固定的自定义ID', default=True):
+        if prefilled is None and ask_yes_no('要不要同时增加固定的自定义ID', default=True):
             while True:
                 try:
                     prof = mode_c_build_terminal_profile()
@@ -3205,7 +3602,14 @@ def select_mode():
 
     elif S['APP_MODE'] == 'D':
         while True:
-            val = input("\n穷举目标ID（可多个，逗号分隔，如 21D,22E,2EC）: " ).strip().upper()
+            if prefilled is not None:
+                val = str(prefilled.get('mode_d_ids_text', '')).strip().upper()
+            else:
+                remembered_d = USER_SETTINGS.get('last_mode_d_ids', '')
+                hint = f"，回车=上次({remembered_d})" if remembered_d else ""
+                val = input(f"\n穷举目标ID（可多个，逗号分隔，如 21D,22E,2EC{hint}）: " ).strip().upper()
+                if not val and remembered_d:
+                    val = remembered_d
             try:
                 ids = parse_hex_id_list(val)
                 if not ids:
@@ -3213,21 +3617,30 @@ def select_mode():
                 break
             except Exception:
                 print(f"{RED}请输入有效16进制ID列表 (000~7FF){RESET}")
-        while True:
-            try:
-                n = input("帧长度 (默认8): " ).strip()
-                fl = int(n) if n else 8
-                if 1 <= fl <= 8:
-                    break
-            except ValueError:
-                pass
-            print(f"{RED}1~8{RESET}")
+                if prefilled is not None:
+                    prefilled = None
+        if prefilled is not None:
+            fl = int(prefilled.get('mode_d_length', USER_SETTINGS.get('last_mode_d_length', 8)))
+            fl = max(1, min(8, fl))
+        else:
+            while True:
+                try:
+                    remembered_len = int(USER_SETTINGS.get('last_mode_d_length', 8))
+                    n = input(f"帧长度 (默认{remembered_len}): " ).strip()
+                    fl = int(n) if n else remembered_len
+                    if 1 <= fl <= 8:
+                        break
+                except ValueError:
+                    pass
+                print(f"{RED}1~8{RESET}")
         D = S['mode_d']
         D['target_ids'] = ids; D['current_target_idx'] = 0; D['length'] = fl
         D['status'] = f"准备穷举 {', '.join(f'0x{x:03X}' for x in ids)}，当前=0x{ids[0]:03X}，帧长={fl}，从byte[1]开始"
         print(f"\n{GREEN}目标: {', '.join(f'0x{x:03X}' for x in ids)}  帧长: {fl}{RESET}")
         print(f"{YELLOW}进入后: ↑/↓切换目标ID  T=切换自动/手动  1/2/3/4=切换扫描策略  += 加速  -= 减速{RESET}")
         time.sleep(1.5)
+
+    _remember_last_selection()
 
 # ──────────────────────────────────────────────
 #  ALT+Q 检测（Windows专用）
