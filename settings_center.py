@@ -68,6 +68,9 @@ def edit_settings_interactive(settings: dict, settings_path: str) -> dict:
         print(f"9  自动打开历史筛选窗口   : {'开' if settings['auto_open_history_window'] else '关'}")
         print(f"10 自动打开PCAN占用窗口   : {'开' if settings['auto_open_pcan_window'] else '关'}")
         print(f"11 自动打开会话控制中心   : {'开' if settings.get('auto_open_control_window', True) else '关'}")
+        print(f"12 现代化主菜单           : {'开' if settings.get('modern_menu_enabled', True) else '关'}")
+        print(f"13 记忆上次格式/模式      : {'开' if settings.get('remember_last_choice', True) else '关'}")
+        print(f"14 启动现代GUI选择器      : {'开' if settings.get('modern_startup_gui_enabled', True) else '关'}")
         print('S  保存并返回')
         print('Q  放弃修改返回')
         choice = input('选择: ').strip().upper()
@@ -98,6 +101,12 @@ def edit_settings_interactive(settings: dict, settings_path: str) -> dict:
             toggle(settings, 'auto_open_pcan_window')
         elif choice == '11':
             toggle(settings, 'auto_open_control_window')
+        elif choice == '12':
+            toggle(settings, 'modern_menu_enabled')
+        elif choice == '13':
+            toggle(settings, 'remember_last_choice')
+        elif choice == '14':
+            toggle(settings, 'modern_startup_gui_enabled')
         elif choice == 'S':
             save_settings(settings_path, settings)
             print('设置已保存')
