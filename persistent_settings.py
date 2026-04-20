@@ -20,7 +20,7 @@ DEFAULT_SETTINGS = {
     "auto_open_control_window": True,
     "show_splash": True,
     "modern_menu_enabled": True,
-    "modern_startup_gui_enabled": False,
+    "modern_startup_gui_enabled": True,
     "remember_last_choice": True,
     "last_fuzz_format": 1,
     "last_app_mode": "A",
