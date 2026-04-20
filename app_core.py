@@ -3107,84 +3107,6 @@ def _print_start_help():
     print("  4) 本次升级不删除任何功能，只新增便捷入口与记忆能力。\n")
 
 
-def _launch_terminal_startup_selector():
-    """纯终端启动向导：无GUI依赖，稳定可回退。"""
-    print(f"\n{BOLD}{CYAN}┌─ 终端启动向导（TUI） ─────────────────────────────────────┐{RESET}")
-    print(f"{CYAN}│{RESET} 保留全部原功能：这里只是把分散输入改成一次性分组输入。          {CYAN}│{RESET}")
-    print(f"{CYAN}└──────────────────────────────────────────────────────────┘{RESET}")
-    while True:
-        mode = (input("模式 [A/B/C/D] (回车=A, Q=退出向导): ").strip().upper() or 'A')
-        if mode == 'Q':
-            return {'action': 'cancel'}
-        if mode in ('A', 'B', 'C', 'D'):
-            break
-        print(f"{RED}请输入 A/B/C/D 或 Q{RESET}")
-
-    fmt = ask_int("发送格式 [1~4]", default=int(USER_SETTINGS.get('last_fuzz_format', 1)), min_v=1, max_v=4)
-    keep_3a0 = ask_yes_no("启用内置3A0固定帧", default=bool(FRAME_ENABLED.get(0x3A0, True)))
-    speed_enabled = ask_yes_no("启用车速配置", default=bool(S.get('speed_config_enabled', False)))
-    speed_value, speed_jitter = 0.0, 0.0
-    if speed_enabled:
-        speed_value = ask_float("车速 km/h", default=float(S.get('speed_value', 0.0)), min_v=0.0, max_v=300.0)
-        speed_jitter = ask_float("车速抖动 ±km/h", default=float(S.get('speed_jitter', 0.0)), min_v=0.0, max_v=20.0)
-    rpm_enabled = ask_yes_no("启用转速配置", default=bool(S.get('rpm_config_enabled', False)))
-    rpm_value, rpm_jitter = 0, 50
-    if rpm_enabled:
-        rpm_value = ask_int("转速 rpm", default=int(S.get('rpm_value', 0)), min_v=0, max_v=9000)
-        rpm_jitter = ask_int("转速抖动 ±rpm", default=int(S.get('rpm_jitter', 50)), min_v=0, max_v=1000)
-
-    payload = {
-        'fmt': fmt,
-        'mode': mode,
-        'enable_3a0': keep_3a0,
-        'speed_enabled': speed_enabled,
-        'speed_value': speed_value,
-        'speed_jitter': speed_jitter,
-        'rpm_enabled': rpm_enabled,
-        'rpm_value': rpm_value,
-        'rpm_jitter': rpm_jitter,
-        'mode_b_count': int(USER_SETTINGS.get('last_mode_b_count', 3)),
-        'mode_b_fixed_ids_text': '',
-        'mode_c_ids_text': '',
-        'mode_d_ids_text': '',
-        'mode_d_length': int(USER_SETTINGS.get('last_mode_d_length', 8)),
-    }
-
-    if mode == 'B':
-        payload['mode_b_count'] = ask_int("模式B随机ID数量", default=int(USER_SETTINGS.get('last_mode_b_count', 3)), min_v=1, max_v=2048)
-        if ask_yes_no("模式B增加固定随机帧ID", default=False):
-            payload['mode_b_fixed_ids_text'] = input("固定随机帧ID（如 21D,22E）: ").strip()
-    elif mode == 'C':
-        default_c = str(USER_SETTINGS.get('last_mode_c_ids', '')).strip()
-        while True:
-            v = input(f"模式C目标Fuzz ID（如 21D,1F3，回车={default_c or '无'}）: ").strip()
-            if not v and default_c:
-                v = default_c
-            try:
-                if not parse_hex_id_list(v):
-                    raise ValueError("至少输入一个ID")
-                payload['mode_c_ids_text'] = v
-                break
-            except Exception as ex:
-                print(f"{RED}输入有误: {ex}{RESET}")
-    elif mode == 'D':
-        default_d = str(USER_SETTINGS.get('last_mode_d_ids', '')).strip()
-        while True:
-            v = input(f"模式D穷举ID（如 21D,22E，回车={default_d or '无'}）: ").strip()
-            if not v and default_d:
-                v = default_d
-            try:
-                if not parse_hex_id_list(v):
-                    raise ValueError("至少输入一个ID")
-                payload['mode_d_ids_text'] = v
-                break
-            except Exception as ex:
-                print(f"{RED}输入有误: {ex}{RESET}")
-        payload['mode_d_length'] = ask_int("模式D帧长度", default=int(USER_SETTINGS.get('last_mode_d_length', 8)), min_v=1, max_v=8)
-
-    return {'action': 'apply', 'payload': payload}
-
-
 def _launch_modern_startup_selector():
     if not HAS_TK or not USER_SETTINGS.get('modern_startup_gui_enabled', True):
         return None
@@ -3362,22 +3284,16 @@ def _launch_modern_startup_selector():
             except Exception as ex:
                 msg_var.set(f'参数有误：{ex}')
 
-        tk.Button(btns, text='应用并进入会话', command=_apply, width=18, bg='#198754', fg='white',
-                  activebackground='#157347', relief='flat').pack(side='left')
-        tk.Button(btns, text='打开设置中心', command=lambda: _close('settings'), width=14, bg='#6f42c1', fg='white',
-                  activebackground='#5c35a5', relief='flat').pack(side='left', padx=8)
-        tk.Button(btns, text='回到原CLI菜单', command=lambda: _close('cancel'), width=14, bg='#495057', fg='white',
-                  activebackground='#3d4348', relief='flat').pack(side='left')
+        _btn(btns, '应用并进入会话', _apply, bg='#198754', w=18).pack(side='left')
+        _btn(btns, '打开设置中心', lambda: _close('settings'), bg='#6f42c1', w=14).pack(side='left', padx=8)
+        _btn(btns, '回到原CLI菜单', lambda: _close('cancel'), bg='#495057', w=14).pack(side='left')
 
         top.bind('<Escape>', lambda _e: _close('cancel'))
         top.protocol('WM_DELETE_WINDOW', lambda: _close('cancel'))
         top.grab_set()
         top.focus_set()
 
-    try:
-        _tk_call(_build)
-    except Exception as ex:
-        return {'action': 'error', 'error': str(ex)}
+    _tk_call(_build)
     done.wait()
     return result
 
@@ -3417,31 +3333,12 @@ def select_mode():
     gui_boot = None
     if USER_SETTINGS.get('modern_menu_enabled', True):
         _show_modern_start_panel()
-        while True:
-            boot_mode = (input("启动入口 (TUI=终端向导, GUI=图形向导, CLI=经典流程, SET=设置中心, 回车=TUI): ").strip().upper() or 'TUI')
-            if boot_mode == 'SET':
-                USER_SETTINGS = edit_settings_interactive(USER_SETTINGS, SETTINGS_FILE)
-                apply_runtime_defaults_to_session()
-                apply_startup_terminal_from_settings('menu_keepalive_terminal_state')
-                continue
-            if boot_mode == 'GUI':
-                gui_boot = _launch_modern_startup_selector()
-                if gui_boot and gui_boot.get('action') == 'settings':
-                    USER_SETTINGS = edit_settings_interactive(USER_SETTINGS, SETTINGS_FILE)
-                    apply_runtime_defaults_to_session()
-                    apply_startup_terminal_from_settings('menu_keepalive_terminal_state')
-                    continue
-                if not gui_boot or gui_boot.get('action') in ('error', 'cancel'):
-                    print(f"{YELLOW}GUI启动中心不可用或已取消，已自动回退到稳定TUI向导。{RESET}")
-                    gui_boot = _launch_terminal_startup_selector()
-                break
-            if boot_mode == 'TUI':
-                gui_boot = _launch_terminal_startup_selector()
-                break
-            if boot_mode == 'CLI':
-                gui_boot = None
-                break
-            print(f"{RED}请输入 TUI / GUI / CLI / SET{RESET}")
+        gui_boot = _launch_modern_startup_selector()
+        if gui_boot and gui_boot.get('action') == 'settings':
+            USER_SETTINGS = edit_settings_interactive(USER_SETTINGS, SETTINGS_FILE)
+            apply_runtime_defaults_to_session()
+            apply_startup_terminal_from_settings('menu_keepalive_terminal_state')
+            gui_boot = _launch_modern_startup_selector()
     if USER_SETTINGS.get('modern_menu_enabled', True):
         print(f"{GRAY}提示：如果你更习惯老流程，直接继续在命令行输入 1/2/3/4 + A/B/C/D 即可。{RESET}")
     print(f"{BOLD}【发送格式】{RESET}")
